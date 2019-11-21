@@ -92,6 +92,51 @@ def __construct_hclen_huffman_code_table(hclen_array):
     # 有効なアルファベットと符合ビットパターンをタプルの配列で返す
     return code_table
 
+def __make_huffman_tree(code_table):
+    root = {}
+    # 辞書でハフマン木を構築
+    # キーは 0 か 1、入っているのは次のノードかアルファベット
+    for code_pair in code_table:
+        alphabet = code_pair[0]
+        code = code_pair[1]
+        node = root
+        bl = len(code)
+        for bit in code:
+            bit = int(bit)
+            if bit in node:
+                node = node[bit]
+            else:
+                if bl == 1:
+                    node[bit] = alphabet
+                else:
+                    new_node = {}
+                    node[bit] = new_node
+                    node = new_node
+            bl = bl - 1
+    return root
+
+def __get_alphabet_from_huffman_tree(huffman_tree, code):
+    node = huffman_tree
+    for bit in code:
+        bit = int(bit)
+        v = node[bit]
+        if type(v) is int:
+            return v
+        else:
+            node = v
+    return None
+
+def __decode_huffman_encoded_value(huffman_tree, bitreader):
+    node = huffman_tree
+    while(True):
+        bit = bitreader.read(1)
+        v = node[bit]
+        if type(v) is int:
+            return v
+        else:
+            node = v
+    return None
+
 def __decode_dynamic_huffman_block(bitreader):
     HLIT = bitreader.read(5) + 257
     HDIST = bitreader.read(5) + 1
@@ -106,10 +151,17 @@ def __decode_dynamic_huffman_block(bitreader):
     length_count = [(cl, hclen_array.count(cl)) for cl in set(hclen_array) if cl != 0]
     print(length_count)
     code_table = __construct_hclen_huffman_code_table(hclen_array)
-    print(code_table)
+    for code_pair in code_table:
+        print(code_pair)
 
+    hclen_huffman_tree = __make_huffman_tree(code_table)
+    for code_pair in code_table:
+        alphabet = __get_alphabet_from_huffman_tree(hclen_huffman_tree, code_pair[1]);
+        print(alphabet, code_pair)
     # HCLENハフマンテーブルを使って、各ハフマンテーブルを複合する
-
+    for i_lit in range(HLIT):
+        v = __decode_huffman_encoded_value(hclen_huffman_tree, bitreader);
+        print(v)
 
     return None
 
