@@ -137,6 +137,35 @@ def __decode_huffman_encoded_value(huffman_tree, bitreader):
             node = v
     return None
 
+def __decode_literal_codelength_table(hclen_huffman_tree, bitreader, hlit):
+    literal_cl_table = numpy.zeros(286, dtype=int)
+    cl_table_index = 0
+    # RFC 1951 3.2.7 符号長テーブルのデコード
+    while(cl_table_index < 286):
+        v = __decode_huffman_encoded_value(hclen_huffman_tree, bitreader);
+        if 0 <= v <= 15: # 0～15は符号長がそのまま保存されている
+            print(cl_table_index, v, 1)
+            literal_cl_table[cl_table_index] = v
+            cl_table_index += 1
+        else: # 16～18はランレングスであり、直前の符号長を繰り返す
+            # 繰り返し回数を読み込む
+            if v == 16:
+                # 00～11が3～6に対応
+                repeat_times = bitreader.read(2) + 3
+            elif v == 17:
+                # 000～111が3～10に対応
+                repeat_times = bitreader.read(3) + 3
+            else: # v == 18 は自明
+                # 000000～1111111が11～138に対応
+                repeat_times = bitreader.read(7) + 3
+            # 直前のコード長を繰り返す
+            print(cl_table_index, v, repeat_times)
+            prev_cl = literal_cl_table[cl_table_index-1]
+            literal_cl_table[cl_table_index:cl_table_index+repeat_times] = prev_cl
+            cl_table_index += repeat_times
+            
+    return literal_cl_table
+
 def __decode_dynamic_huffman_block(bitreader):
     HLIT = bitreader.read(5) + 257
     HDIST = bitreader.read(5) + 1
@@ -159,9 +188,8 @@ def __decode_dynamic_huffman_block(bitreader):
         alphabet = __get_alphabet_from_huffman_tree(hclen_huffman_tree, code_pair[1]);
         print(alphabet, code_pair)
     # HCLENハフマンテーブルを使って、各ハフマンテーブルを複合する
-    for i_lit in range(HLIT):
-        v = __decode_huffman_encoded_value(hclen_huffman_tree, bitreader);
-        print(v)
+    literal_cl_table = __decode_literal_codelength_table(hclen_huffman_tree, bitreader, HLIT)
+    print(literal_cl_table)
 
     return None
 
