@@ -48,7 +48,7 @@ def __fix_huffman_decode_to_literal_value(bitreader):
         v = (v << 1) | remain_bits
         return 280 + v - 0b11000000
 
-def __hclen_decode(bitreader, HCLEN):
+def __decode_hclen_code_length_table(bitreader, HCLEN):
     # テーブルにはアルファベット順では無い並びでハフマン符号長が保存されている
     shuffled = numpy.array([bitreader.read(3) for _ in range(HCLEN)])
     index_table = [
@@ -137,61 +137,153 @@ def __decode_huffman_encoded_value(huffman_tree, bitreader):
             node = v
     return None
 
-def __decode_literal_codelength_table(hclen_huffman_tree, bitreader, hlit):
-    literal_cl_table = numpy.zeros(286, dtype=int)
+def __decode_codelength_table(
+        hclen_huffman_tree, bitreader, table_size):
+    cl_table = numpy.zeros(table_size, dtype=int)
     cl_table_index = 0
     # RFC 1951 3.2.7 符号長テーブルのデコード
-    while(cl_table_index < 286):
+    while(cl_table_index < table_size):
         v = __decode_huffman_encoded_value(hclen_huffman_tree, bitreader);
         if 0 <= v <= 15: # 0～15は符号長がそのまま保存されている
-            print(cl_table_index, v, 1)
-            literal_cl_table[cl_table_index] = v
+            cl_table[cl_table_index] = v
             cl_table_index += 1
         else: # 16～18はランレングスであり、直前の符号長を繰り返す
             # 繰り返し回数を読み込む
             if v == 16:
                 # 00～11が3～6に対応
                 repeat_times = bitreader.read(2) + 3
+                # 直前のコード長を繰り返す
+                code = cl_table[cl_table_index-1]
             elif v == 17:
                 # 000～111が3～10に対応
                 repeat_times = bitreader.read(3) + 3
+                # 0を繰り返す
+                code = 0
             else: # v == 18 は自明
                 # 000000～1111111が11～138に対応
-                repeat_times = bitreader.read(7) + 3
-            # 直前のコード長を繰り返す
-            print(cl_table_index, v, repeat_times)
-            prev_cl = literal_cl_table[cl_table_index-1]
-            literal_cl_table[cl_table_index:cl_table_index+repeat_times] = prev_cl
+                repeat_times = bitreader.read(7) + 11
+                # 0を繰り返す
+                code = 0
+            cl_table[cl_table_index:cl_table_index+repeat_times] = code
             cl_table_index += repeat_times
-            
-    return literal_cl_table
+    return list(cl_table)
+
+def __decode_length(bitreader, literal):
+    if 257 <= literal <= 264:
+        length = literal - 257 + 3
+    elif 265 <= literal <= 268:
+        ext_bits = bitreader.read(1)
+        length = (((literal - 265) << 1) | ext_bits) + 11
+    elif 268 <= literal <= 272:
+        ext_bits = bitreader.read(2)
+        length = (((literal - 268) << 2) | ext_bits) + 19
+    elif 273 <= literal <= 276:
+        ext_bits = bitreader.read(3)
+        length = (((literal - 273) << 3) | ext_bits) + 35
+    elif 277 <= literal <= 280:
+        ext_bits = bitreader.read(4)
+        length = (((literal - 277) << 4) | ext_bits) + 67
+    elif 281 <= literal <= 284:
+        ext_bits = bitreader.read(5)
+        length = (((literal - 281) << 5) | ext_bits) + 131
+    else: # literal == 285
+        length = 258
+    return length
+
+def __decode_distance(bitreader, distance_type):
+    if 0 <= distance_type <= 3:
+        distance = distance_type - 0 + 1
+    elif 4 <= distance_type <= 5:
+        ext_bits = bitreader.read(1)
+        distance = (((distance_type - 4) << 1) | ext_bits) + 5
+    elif 6 <= distance_type <= 7:
+        ext_bits = bitreader.read(2)
+        distance = (((distance_type - 6) << 2) | ext_bits) + 9
+    elif 8 <= distance_type <= 9:
+        ext_bits = bitreader.read(3)
+        distance = (((distance_type - 8) << 3) | ext_bits) + 17
+    elif 10 <= distance_type <= 11:
+        ext_bits = bitreader.read(4)
+        distance = (((distance_type - 10) << 4) | ext_bits) + 33
+    elif 12 <= distance_type <= 13:
+        ext_bits = bitreader.read(5)
+        distance = (((distance_type - 12) << 5) | ext_bits) + 65
+    elif 14 <= distance_type <= 15:
+        ext_bits = bitreader.read(6)
+        distance = (((distance_type - 14) << 6) | ext_bits) + 129
+    elif 16 <= distance_type <= 17:
+        ext_bits = bitreader.read(7)
+        distance = (((distance_type - 16) << 7) | ext_bits) + 257
+    elif 18 <= distance_type <= 19:
+        ext_bits = bitreader.read(8)
+        distance = (((distance_type - 18) << 8) | ext_bits) + 513
+    elif 20 <= distance_type <= 21:
+        ext_bits = bitreader.read(9)
+        distance = (((distance_type - 20) << 9) | ext_bits) + 1025
+    elif 22 <= distance_type <= 23:
+        ext_bits = bitreader.read(10)
+        distance = (((distance_type - 22) << 10) | ext_bits) + 2049
+    elif 24 <= distance_type <= 25:
+        ext_bits = bitreader.read(11)
+        distance = (((distance_type - 24) << 11) | ext_bits) + 4097
+    elif 26 <= distance_type <= 27:
+        ext_bits = bitreader.read(12)
+        distance = (((distance_type - 26) << 12) | ext_bits) + 8193
+    elif 28 <= distance_type <= 29:
+        ext_bits = bitreader.read(13)
+        distance = (((distance_type - 28) << 13) | ext_bits) + 16385
+    else: # error
+        raise "data error"
+    return distance
 
 def __decode_dynamic_huffman_block(bitreader):
     HLIT = bitreader.read(5) + 257
     HDIST = bitreader.read(5) + 1
     HCLEN = bitreader.read(4) + 4
-    print(HLIT, HDIST, HCLEN)
 
     # 各ハフマンテーブルの符号長をハフマン符号化した際の符号長を読み込む
-    hclen_array = __hclen_decode(bitreader, HCLEN)
-    print(hclen_array)
+    hclen_array = __decode_hclen_code_length_table(bitreader, HCLEN)
 
     # ハフマンテーブルを再構築
     length_count = [(cl, hclen_array.count(cl)) for cl in set(hclen_array) if cl != 0]
-    print(length_count)
     code_table = __construct_hclen_huffman_code_table(hclen_array)
-    for code_pair in code_table:
-        print(code_pair)
-
     hclen_huffman_tree = __make_huffman_tree(code_table)
-    for code_pair in code_table:
-        alphabet = __get_alphabet_from_huffman_tree(hclen_huffman_tree, code_pair[1]);
-        print(alphabet, code_pair)
-    # HCLENハフマンテーブルを使って、各ハフマンテーブルを複合する
-    literal_cl_table = __decode_literal_codelength_table(hclen_huffman_tree, bitreader, HLIT)
-    print(literal_cl_table)
+    if 0: # debubg code
+        for code_pair in code_table:
+            alphabet = __get_alphabet_from_huffman_tree(hclen_huffman_tree, code_pair[1]);
+            print(alphabet, code_pair)
 
-    return None
+    # HCLENハフマンテーブルを使って、各ハフマンテーブルを複合する
+    literal_cl_table = __decode_codelength_table(hclen_huffman_tree, bitreader, HLIT)
+    distance_cl_table = __decode_codelength_table(hclen_huffman_tree, bitreader, HDIST)
+
+    # 各種ハフマン木を構築
+    literal_huffman_code_table = __construct_hclen_huffman_code_table(literal_cl_table)
+    literal_huffman_tree = __make_huffman_tree(literal_huffman_code_table)
+    distance_huffman_code_table = __construct_hclen_huffman_code_table(distance_cl_table)
+    distance_huffman_tree = __make_huffman_tree(distance_huffman_code_table)
+
+    # データの復号
+    decoded_data = bytearray()
+    while(True):
+        literal_or_length = __decode_huffman_encoded_value(literal_huffman_tree, bitreader);
+        if 0 <= literal_or_length <= 255:
+            # literal
+            decoded_data.append(literal_or_length)
+        elif literal_or_length == 256:
+            # end
+            break
+        else: # 257 <= literal_or_length <= 285
+            # length and distance
+            length = __decode_length(bitreader, literal_or_length)
+            distance_type = __decode_huffman_encoded_value(distance_huffman_tree, bitreader);
+            distance = __decode_distance(bitreader, distance_type)
+            start_offset = len(decoded_data) - distance
+            for offset in range(start_offset, start_offset + length, 1):
+                alphabet = decoded_data[offset]
+                decoded_data.append(alphabet)
+
+    return decoded_data
 
 def __decode(deflated_bytearray):
     bitreader = BitReader(deflated_bytearray)
@@ -210,14 +302,16 @@ def __decode(deflated_bytearray):
         v = __fix_huffman_decode_to_literal_value(bitreader)
         print(v)
     elif compress_type == 0b10:
-        __decode_dynamic_huffman_block(bitreader)
+        decoded_data = __decode_dynamic_huffman_block(bitreader)
 
-    return None
+    return decoded_data
 
 if __name__ == "__main__":
     with open("deflate.py", "rb") as data_file:
         data = data_file.read()
     import zlib
     zlib_deflated = zlib.compress(data)[2:-4]
-    __decode(zlib_deflated)
+    decoded_data = __decode(zlib_deflated)
+    with open("deflate_decoded.py", "wb") as decoded_file:
+        decoded_file.write(decoded_data)
     exit(0)
