@@ -174,9 +174,9 @@ def __decode_length(bitreader, literal):
     elif 265 <= literal <= 268:
         ext_bits = bitreader.read(1)
         length = (((literal - 265) << 1) | ext_bits) + 11
-    elif 268 <= literal <= 272:
+    elif 269 <= literal <= 272:
         ext_bits = bitreader.read(2)
-        length = (((literal - 268) << 2) | ext_bits) + 19
+        length = (((literal - 269) << 2) | ext_bits) + 19
     elif 273 <= literal <= 276:
         ext_bits = bitreader.read(3)
         length = (((literal - 273) << 3) | ext_bits) + 35
