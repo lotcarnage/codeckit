@@ -285,6 +285,17 @@ def __decode_dynamic_huffman_block(bitreader):
 
     return decoded_data
 
+def __decode_noncompressed_block(deflated_bytearray):
+    # 正しくはバイト境界まで読み飛ばす必要がある。
+    # 直前のブロックがバイト境界で終端しない場合、
+    # 半端なビット数で非圧縮ブロックが始まる。
+    LEN = deflated_bytearray[1]
+    NLEN = deflated_bytearray[2]
+    total_size = NLEN * 256 + LEN
+    print(f"{total_size} [byte]")
+    decode_data = deflated_bytearray[3:3 + total_size]
+    return decode_data
+
 def __decode(deflated_bytearray):
     bitreader = BitReader(deflated_bytearray)
     v = bitreader.read(1)
@@ -303,15 +314,23 @@ def __decode(deflated_bytearray):
         print(v)
     elif compress_type == 0b10:
         decoded_data = __decode_dynamic_huffman_block(bitreader)
+    elif compress_type == 0b00:
+        decoded_data = __decode_noncompressed_block(deflated_bytearray)
 
     return decoded_data
 
 if __name__ == "__main__":
+    def __test_decommpress_deflate(raw_data, compress_level, output_filepath):
+        import zlib
+        zlib_deflated = zlib.compress(raw_data, compress_level)[2:-4]
+        decoded_data = __decode(zlib_deflated)
+        with open(output_filepath, "wb") as decoded_file:
+            decoded_file.write(decoded_data)
+
     with open("deflate.py", "rb") as data_file:
         data = data_file.read()
-    import zlib
-    zlib_deflated = zlib.compress(data)[2:-4]
-    decoded_data = __decode(zlib_deflated)
-    with open("deflate_decoded.py", "wb") as decoded_file:
-        decoded_file.write(decoded_data)
+    __test_decommpress_deflate(data, -1, "deflate_10.py")
+    __test_decommpress_deflate(data, 0, "deflate_00.py")
+
+
     exit(0)
