@@ -296,6 +296,38 @@ def __decode_noncompressed_block(deflated_bytearray):
     decode_data = deflated_bytearray[3:3 + total_size]
     return decode_data
 
+def __decode_fixed_huffman_compressed_block(bitreader):
+    literal_cl_table = numpy.zeros(286, dtype=int)
+    literal_cl_table[0:144] = 8
+    literal_cl_table[144:256] = 9
+    literal_cl_table[256:280] = 7
+    literal_cl_table[280:288] = 8
+    literal_cl_table = list(literal_cl_table)
+    literal_huffman_code_table = __construct_hclen_huffman_code_table(literal_cl_table)
+    literal_huffman_tree = __make_huffman_tree(literal_huffman_code_table)
+
+    # データの復号
+    decoded_data = bytearray()
+    while(True):
+        literal_or_length = __decode_huffman_encoded_value(literal_huffman_tree, bitreader);
+        if 0 <= literal_or_length <= 255:
+            # literal
+            decoded_data.append(literal_or_length)
+        elif literal_or_length == 256:
+            # end
+            break
+        else: # 257 <= literal_or_length <= 285
+            # length and distance
+            length = __decode_length(bitreader, literal_or_length)
+            distance_type = bitreader.read(5);
+            distance = __decode_distance(bitreader, distance_type)
+            start_offset = len(decoded_data) - distance
+            for offset in range(start_offset, start_offset + length, 1):
+                alphabet = decoded_data[offset]
+                decoded_data.append(alphabet)
+
+    return decoded_data
+
 def __decode(deflated_bytearray):
     bitreader = BitReader(deflated_bytearray)
     v = bitreader.read(1)
@@ -310,8 +342,7 @@ def __decode(deflated_bytearray):
     print(compress_type_string[compress_type])
 
     if compress_type == 0b01:
-        v = __fix_huffman_decode_to_literal_value(bitreader)
-        print(v)
+        decoded_data = __decode_fixed_huffman_compressed_block(bitreader)
     elif compress_type == 0b10:
         decoded_data = __decode_dynamic_huffman_block(bitreader)
     elif compress_type == 0b00:
@@ -331,6 +362,7 @@ if __name__ == "__main__":
         data = data_file.read()
     __test_decommpress_deflate(data, -1, "deflate_10.py")
     __test_decommpress_deflate(data, 0, "deflate_00.py")
+    __test_decommpress_deflate(bytearray("abcdefg".encode()), 1, "deflate_01.py")
 
 
     exit(0)
