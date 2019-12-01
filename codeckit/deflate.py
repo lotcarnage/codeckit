@@ -31,22 +31,17 @@ class BitReader:
             value, write_offset, bit_count = self.__read_bit(value, write_offset, bit_count)
         return value
 
-def __fix_huffman_decode_to_literal_value(bitreader):
-    v = bitreader.read(7)
-    if v <= 0b0010111: # type C
-        return 256 + v
-    elif 0b0011000 <= v <= 0b1011111: # type A
-        remain_bits = bitreader.read(1)
-        v = (v << 1) | remain_bits
-        return 0 + v - 0b00110000
-    elif 0b1100100 <= v <= 0b1111111: # type B
-        remain_bits = bitreader.read(2)
-        v = (v << 2) | remain_bits
-        return 144 + v - 0b110010000
-    elif 0b1100000 <= v <= 0b1100011: # type D
-        remain_bits = bitreader.read(1)
-        v = (v << 1) | remain_bits
-        return 280 + v - 0b11000000
+    def drain_bits_to_byte_border(self):
+        self.remain_bit_count = 0
+        return None
+
+    def read_bytes(self, num_bytes):
+        if self.remain_bit_count != 0:
+            return None
+        offset = self.byte_offset
+        byte_array = self.byte_array[offset:offset + num_bytes]
+        self.byte_offset += num_bytes
+        return byte_array
 
 def __decode_hclen_code_length_table(bitreader, HCLEN):
     # テーブルにはアルファベット順では無い並びでハフマン符号長が保存されている
@@ -285,16 +280,15 @@ def __decode_dynamic_huffman_block(bitreader):
 
     return decoded_data
 
-def __decode_noncompressed_block(deflated_bytearray):
-    # 正しくはバイト境界まで読み飛ばす必要がある。
-    # 直前のブロックがバイト境界で終端しない場合、
-    # 半端なビット数で非圧縮ブロックが始まる。
-    LEN = deflated_bytearray[1]
-    NLEN = deflated_bytearray[2]
-    total_size = NLEN * 256 + LEN
-    print(f"{total_size} [byte]")
-    decode_data = deflated_bytearray[3:3 + total_size]
-    return decode_data
+def __decode_noncompressed_block(bitreader):
+    # 半端なビットを捨ててバイト境界まで読み飛ばす
+    bitreader.drain_bits_to_byte_border()
+    header = bitreader.read_bytes(4)
+    LEN = header[1] * 256 + header[0]
+    NLEN = header[3] * 256 + header[2]
+    total_bytes = LEN
+    decoded_data = bitreader.read_bytes(total_bytes)
+    return decoded_data
 
 def __decode_fixed_huffman_compressed_block(bitreader):
     literal_cl_table = numpy.zeros(286, dtype=int)
@@ -346,7 +340,7 @@ def __decode(deflated_bytearray):
     elif compress_type == 0b10:
         decoded_data = __decode_dynamic_huffman_block(bitreader)
     elif compress_type == 0b00:
-        decoded_data = __decode_noncompressed_block(deflated_bytearray)
+        decoded_data = __decode_noncompressed_block(bitreader)
 
     return decoded_data
 
