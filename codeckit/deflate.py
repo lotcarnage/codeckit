@@ -43,6 +43,15 @@ class BitReader:
         self.byte_offset += num_bytes
         return byte_array
 
+def __decode_noncompressed_block(bitreader):
+    # 半端なビットを捨ててバイト境界まで読み飛ばす
+    bitreader.drain_bits_to_byte_border()
+    header = bitreader.read_bytes(4)
+    LEN = header[1] * 256 + header[0] # 格納されているデータ長を復元
+    NLEN = header[3] * 256 + header[2] # 格納されているデータ長の補数（LEN + NLEN == 65535となる）
+    decoded_data = bitreader.read_bytes(LEN)
+    return decoded_data
+    
 def __decode_hclen_code_length_table(bitreader, HCLEN):
     # テーブルにはアルファベット順では無い並びでハフマン符号長が保存されている
     shuffled = numpy.array([bitreader.read(3) for _ in range(HCLEN)])
@@ -240,13 +249,8 @@ def __decode_dynamic_huffman_block(bitreader):
     hclen_array = __decode_hclen_code_length_table(bitreader, HCLEN)
 
     # ハフマンテーブルを再構築
-    length_count = [(cl, hclen_array.count(cl)) for cl in set(hclen_array) if cl != 0]
-    code_table = __construct_hclen_huffman_code_table(hclen_array)
-    hclen_huffman_tree = __make_huffman_tree(code_table)
-    if 0: # debubg code
-        for code_pair in code_table:
-            alphabet = __get_alphabet_from_huffman_tree(hclen_huffman_tree, code_pair[1]);
-            print(alphabet, code_pair)
+    hclen_cl_table = __construct_hclen_huffman_code_table(hclen_array)
+    hclen_huffman_tree = __make_huffman_tree(hclen_cl_table)
 
     # HCLENハフマンテーブルを使って、各ハフマンテーブルを複合する
     literal_cl_table = __decode_codelength_table(hclen_huffman_tree, bitreader, HLIT)
@@ -280,23 +284,16 @@ def __decode_dynamic_huffman_block(bitreader):
 
     return decoded_data
 
-def __decode_noncompressed_block(bitreader):
-    # 半端なビットを捨ててバイト境界まで読み飛ばす
-    bitreader.drain_bits_to_byte_border()
-    header = bitreader.read_bytes(4)
-    LEN = header[1] * 256 + header[0]
-    NLEN = header[3] * 256 + header[2]
-    total_bytes = LEN
-    decoded_data = bitreader.read_bytes(total_bytes)
-    return decoded_data
+def __make_fixed_huffman_code_length_table():
+    code_length_table = numpy.zeros(286, dtype=int)
+    code_length_table[0:144] = 8
+    code_length_table[144:256] = 9
+    code_length_table[256:280] = 7
+    code_length_table[280:288] = 8
+    return list(code_length_table)
 
 def __decode_fixed_huffman_compressed_block(bitreader):
-    literal_cl_table = numpy.zeros(286, dtype=int)
-    literal_cl_table[0:144] = 8
-    literal_cl_table[144:256] = 9
-    literal_cl_table[256:280] = 7
-    literal_cl_table[280:288] = 8
-    literal_cl_table = list(literal_cl_table)
+    literal_cl_table = __make_fixed_huffman_code_length_table()
     literal_huffman_code_table = __construct_hclen_huffman_code_table(literal_cl_table)
     literal_huffman_tree = __make_huffman_tree(literal_huffman_code_table)
 
