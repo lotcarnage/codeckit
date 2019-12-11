@@ -240,6 +240,13 @@ def __decode_distance(bitreader, distance_type):
         raise "data error"
     return distance
 
+def __lz77_decompress_inplace(decompressed_data, backward_distance, length):
+    start_offset = len(decompressed_data) - backward_distance
+    for offset in range(start_offset, start_offset + length, 1):
+        alphabet = decompressed_data[offset]
+        decompressed_data.append(alphabet)
+    return None
+
 def __decode_dynamic_huffman_block(bitreader):
     HLIT = bitreader.read(5) + 257
     HDIST = bitreader.read(5) + 1
@@ -277,10 +284,7 @@ def __decode_dynamic_huffman_block(bitreader):
             length = __decode_length(bitreader, literal_or_length)
             distance_type = __decode_huffman_encoded_value(distance_huffman_tree, bitreader);
             distance = __decode_distance(bitreader, distance_type)
-            start_offset = len(decoded_data) - distance
-            for offset in range(start_offset, start_offset + length, 1):
-                alphabet = decoded_data[offset]
-                decoded_data.append(alphabet)
+            __lz77_decompress_inplace(decoded_data, distance, length)
 
     return decoded_data
 
@@ -312,10 +316,7 @@ def __decode_fixed_huffman_compressed_block(bitreader):
             length = __decode_length(bitreader, literal_or_length)
             distance_type = bitreader.read(5);
             distance = __decode_distance(bitreader, distance_type)
-            start_offset = len(decoded_data) - distance
-            for offset in range(start_offset, start_offset + length, 1):
-                alphabet = decoded_data[offset]
-                decoded_data.append(alphabet)
+            __lz77_decompress_inplace(decoded_data, distance, length)
 
     return decoded_data
 
