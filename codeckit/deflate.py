@@ -31,7 +31,7 @@ class BitReader:
             value, write_offset, bit_count = self.__read_bit(value, write_offset, bit_count)
         return value
 
-    def drain_bits_to_byte_border(self):
+    def discard_bits_to_byte_border(self):
         self.remain_bit_count = 0
         return None
 
@@ -45,7 +45,7 @@ class BitReader:
 
 def __decode_noncompressed_block(bitreader):
     # 半端なビットを捨ててバイト境界まで読み飛ばす
-    bitreader.drain_bits_to_byte_border()
+    bitreader.discard_bits_to_byte_border()
     header = bitreader.read_bytes(4)
     LEN = header[1] * 256 + header[0] # 格納されているデータ長を復元
     NLEN = header[3] * 256 + header[2] # 格納されているデータ長の補数（LEN + NLEN == 65535となる）
@@ -118,17 +118,6 @@ def __make_huffman_tree(code_table):
                     node = new_node
             bl = bl - 1
     return root
-
-def __get_alphabet_from_huffman_tree(huffman_tree, code):
-    node = huffman_tree
-    for bit in code:
-        bit = int(bit)
-        v = node[bit]
-        if type(v) is int:
-            return v
-        else:
-            node = v
-    return None
 
 def __decode_huffman_encoded_value(huffman_tree, bitreader):
     node = huffman_tree
@@ -247,27 +236,28 @@ def __lz77_decompress_inplace(decompressed_data, backward_distance, length):
         decompressed_data.append(alphabet)
     return None
 
-def __decode_dynamic_huffman_block(bitreader):
+def __decode_dynamic_huffman_tree(bitreader):
     HLIT = bitreader.read(5) + 257
     HDIST = bitreader.read(5) + 1
     HCLEN = bitreader.read(4) + 4
-
     # 各ハフマンテーブルの符号長をハフマン符号化した際の符号長を読み込む
     hclen_array = __decode_hclen_code_length_table(bitreader, HCLEN)
-
     # ハフマンテーブルを再構築
     hclen_cl_table = __construct_hclen_huffman_code_table(hclen_array)
     hclen_huffman_tree = __make_huffman_tree(hclen_cl_table)
-
     # HCLENハフマンテーブルを使って、各ハフマンテーブルを複合する
     literal_cl_table = __decode_codelength_table(hclen_huffman_tree, bitreader, HLIT)
     distance_cl_table = __decode_codelength_table(hclen_huffman_tree, bitreader, HDIST)
-
     # 各種ハフマン木を構築
     literal_huffman_code_table = __construct_hclen_huffman_code_table(literal_cl_table)
     literal_huffman_tree = __make_huffman_tree(literal_huffman_code_table)
     distance_huffman_code_table = __construct_hclen_huffman_code_table(distance_cl_table)
     distance_huffman_tree = __make_huffman_tree(distance_huffman_code_table)
+    return literal_huffman_tree, distance_huffman_tree
+
+def __decode_dynamic_huffman_block(bitreader):
+    # 各種ハフマン木を構築
+    literal_huffman_tree, distance_huffman_tree = __decode_dynamic_huffman_tree(bitreader)
 
     # データの復号
     decoded_data = bytearray()
@@ -296,10 +286,14 @@ def __make_fixed_huffman_code_length_table():
     code_length_table[280:288] = 8
     return list(code_length_table)
 
-def __decode_fixed_huffman_compressed_block(bitreader):
+def __decode_fixed_huffman_tree(bitreader):
     literal_cl_table = __make_fixed_huffman_code_length_table()
     literal_huffman_code_table = __construct_hclen_huffman_code_table(literal_cl_table)
     literal_huffman_tree = __make_huffman_tree(literal_huffman_code_table)
+    return literal_huffman_tree
+
+def __decode_fixed_huffman_compressed_block(bitreader):
+    literal_huffman_tree = __decode_fixed_huffman_tree(bitreader)
 
     # データの復号
     decoded_data = bytearray()
