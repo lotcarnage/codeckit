@@ -316,23 +316,20 @@ def __decode_fixed_huffman_compressed_block(bitreader):
 
 def __decode(deflated_bytearray):
     bitreader = BitReader(deflated_bytearray)
-    v = bitreader.read(1)
-    print("End block" if v == 1 else "block")
-    compress_type_string = [
-        "00:uncompressed",
-        "01:fixed huffman",
-        "10:dynamic huffman",
-        "11:error block",
-    ]
-    compress_type = bitreader.read(2)
-    print(compress_type_string[compress_type])
-
-    if compress_type == 0b01:
-        decoded_data = __decode_fixed_huffman_compressed_block(bitreader)
-    elif compress_type == 0b10:
-        decoded_data = __decode_dynamic_huffman_block(bitreader)
-    elif compress_type == 0b00:
-        decoded_data = __decode_noncompressed_block(bitreader)
+    decoded_data = bytearray()
+    is_end_block = False
+    while(not is_end_block):
+        is_end_block = bool(bitreader.read(1))
+        compress_type = bitreader.read(2)
+        if compress_type == 0b01:
+            decoded_block_data = __decode_fixed_huffman_compressed_block(bitreader)
+        elif compress_type == 0b10:
+            decoded_block_data = __decode_dynamic_huffman_block(bitreader)
+        elif compress_type == 0b00:
+            decoded_block_data = __decode_noncompressed_block(bitreader)
+        else:
+            raise "Invalid datastream error!"
+        decoded_data.extend(decoded_block_data)
 
     return decoded_data
 
@@ -349,6 +346,5 @@ if __name__ == "__main__":
     __test_decommpress_deflate(data, -1, "deflate_10.py")
     __test_decommpress_deflate(data, 0, "deflate_00.py")
     __test_decommpress_deflate(bytearray("abcdefg".encode()), 1, "deflate_01.py")
-
 
     exit(0)
